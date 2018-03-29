@@ -41,8 +41,8 @@ using namespace std;
 using namespace yarp::os;
 using namespace yarp::sig;
 
-
 /****************************************************************/
+
 class UpdateCommand : public vtkCommand
 {
     const bool *closing;
@@ -87,6 +87,7 @@ public:
 };
 
 /****************************************************************/
+
 class Object
 {
 protected:
@@ -152,7 +153,7 @@ public:
             vtk_colors=vtkSmartPointer<vtkUnsignedCharArray>::New();
             vtk_colors->SetNumberOfComponents(3);
             for (size_t i=0; i<colors.size(); i++)
-                vtk_colors->InsertNextTypedTuple(colors[i].data());
+                vtk_colors->InsertNextTupleValue(colors[i].data());
 
             vtk_polydata->GetPointData()->SetScalars(vtk_colors);
             return true;
@@ -214,14 +215,25 @@ public:
         vtk_actor=vtkSmartPointer<vtkActor>::New();
         vtk_actor->SetMapper(vtk_mapper);
         vtk_actor->GetProperty()->SetOpacity(0.25);
+
+        vtk_transform = vtkSmartPointer<vtkTransform>::New();
+        vtk_transform->Identity();
+        vtk_actor->SetUserTransform(vtk_transform);
     }
 
     /****************************************************************/
     void set_parameters(const Vector &r)
     {
         //  set coefficients of the superquadric
+        //  (dimensions (x0 x1 x2)) (exponents (x3 x4)) (center (x5 x6 x7)) (orientation (x8 x9 x10 x11))
+        vtk_superquadric->SetScale(r[0], r[1], r[2]);
+        vtk_superquadric->SetThetaRoundness(r[3]);
+        vtk_superquadric->SetPhiRoundness(r[4]);
 
         //  translate and set the pose of the superquadric
+        vtk_superquadric->SetCenter(r[5], r[6], r[7]);
+        vtk_superquadric->SetToroidal(0);
+        vtk_transform->Identity();
 
     }
 };
@@ -233,26 +245,31 @@ class DisplaySuperQ : public RFModule
 
     class PointCloudProcessor: public TypedReaderCallback<Matrix>
     {
+        DisplaySuperQ *displayer;
         using TypedReaderCallback<Matrix>::onRead;
         virtual void onRead(Matrix &pointCloud)
         {
             //  define what to do when the callback is triggered
             //  i.e. when a point cloud comes in
-            refreshPointCloud(pointCloud);
+            displayer->refreshPointCloud(pointCloud);
         }
+    public:
+        PointCloudProcessor(DisplaySuperQ *displayer_) : displayer(displayer_) { }
     };
 
     class SuperquadricProcessor: public TypedReaderCallback<Property>
     {
+        DisplaySuperQ *displayer;
         using TypedReaderCallback<Property>::onRead;
         virtual void onRead(Property &superQ)
         {
             //  define what to do when the callback is triggered
             //  i.e. when a superquadric comes in
-            refreshSuperquadric(superQ);
+            displayer->refreshSuperquadric(superQ);
         }
+    public:
+        SuperquadricProcessor(DisplaySuperQ *displayer_) : displayer(displayer_) { }
     };
-
 
     PointCloudProcessor PCproc;
     SuperquadricProcessor SQproc;
@@ -336,10 +353,10 @@ class DisplaySuperQ : public RFModule
         vector<double> pc_bounds(6), pc_centroid(3);
         vtk_points->get_polydata()->GetBounds(pc_bounds.data());
         for (size_t i=0; i<pc_centroid.size(); i++)
-            centroid[i] = 0.5*(pc_bounds[i<<1]+bounds[(i<<1)+1];
+            pc_centroid[i] = 0.5*(pc_bounds[i<<1]+pc_bounds[(i<<1)+1]);
 
         vtk_camera = vtkSmartPointer<vtkCamera>::New();
-        vtk_camera->SetPosition(pc_centroid[0]+1,0, pc_centroid[1], centroid[2]+0.5);
+        vtk_camera->SetPosition(pc_centroid[0]+1.0, pc_centroid[1], pc_centroid[2]+0.5);
         vtk_camera->SetViewUp(0.0, 0.0, 1.0);
         vtk_renderer->SetActiveCamera(vtk_camera);
 
@@ -348,7 +365,7 @@ class DisplaySuperQ : public RFModule
 
         //  set up the visualizer refresh callback
         vtk_updateCallback = vtkSmartPointer<UpdateCommand>::New();
-        vtk_updateCallback->set_closing(closing);               //  this refers to a class that isn inherited yet
+        vtk_updateCallback->set_closing(closing);
         vtk_renderWindowInteractor->AddObserver(vtkCommand::TimerEvent, vtk_updateCallback);
         vtk_renderWindowInteractor->Start();
 
@@ -373,6 +390,7 @@ class DisplaySuperQ : public RFModule
     {
         superqInPort.interrupt();
         pointCloudInPort.interrupt();
+        closing = true;
 
         return true;
 
@@ -391,7 +409,7 @@ class DisplaySuperQ : public RFModule
     }
 
     /****************************************************************/
-    void refreshPointCloud(const Matrix  &points)
+    void refreshPointCloud(const Matrix &points)
     {
        if (points.rows()>0)
        {
@@ -421,12 +439,42 @@ class DisplaySuperQ : public RFModule
        }
     }
 
+    /****************************************************************/
     void refreshSuperquadric(const Property &superq)
     {
+        //  somehow set the superquadric parameters, TODO
+        //  the incoming message has the following syntax
+        //  (dimensions (x0 x1 x2)) (exponents (x3 x4)) (center (x5 x6 x7)) (orientation (x8 x9 x10 x11))
+
+        Vector superq_dimension;
+        Vector superq_exponents;
+        Vector superq_center;
+        Vector superq_orientation;
+        superq.find("dimensions").asList()->write(superq_dimension);
+        superq.find("exponents").asList()->write(superq_exponents);
+        superq.find("center").asList()->write(superq_center);
+        superq.find("orientation").asList()->write(superq_orientation);
+
+        //  pass the parameters as a single vector
+        Vector params;
+        for (int i=0; i<superq_dimension.size(); i++)
+            params.push_back(superq_dimension[i]);
+        for (int i=0; i<superq_exponents.size(); i++)
+            params.push_back(superq_exponents[i]);
+        for (int i=0; i<superq_center.size(); i++)
+            params.push_back(superq_center[i]);
+        for (int i=0; i<superq_orientation.size(); i++)
+            params.push_back(superq_orientation[i]);
+
+        vtk_superquadric->set_parameters(params);
 
     }
 
+    /****************************************************************/
+public:
 
+    //  set up the constructor
+    DisplaySuperQ(): closing(false), PCproc(this), SQproc(this) {}
 };
 
 /****************************************************************/
@@ -443,5 +491,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    return EXIT_SUCCESS;
+    DisplaySuperQ disp;
+
+    return disp.runModule(rf);
 }
