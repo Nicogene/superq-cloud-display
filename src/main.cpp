@@ -16,6 +16,7 @@
 
 #include <yarp/os/all.h>
 #include <yarp/sig/all.h>
+#include <yarp/math/Math.h>
 
 #include <vtkSmartPointer.h>
 #include <vtkCommand.h>
@@ -197,12 +198,10 @@ public:
         //  Default has radius of 0.5, toroidal off, center at 0.0, scale (1,1,1), size 0.5, phi roundness 1.0, and theta roundness 0.0.
         vtk_superquadric=vtkSmartPointer<vtkSuperquadric>::New();
 
-        //  set the superquadric default values
-
         vtk_sample=vtkSmartPointer<vtkSampleFunction>::New();
         vtk_sample->SetSampleDimensions(50,50,50);
         vtk_sample->SetImplicitFunction(vtk_superquadric);
-        vtk_sample->SetModelBounds(-r[4],r[4],-r[5],r[5],-r[6],r[6]);
+        vtk_sample->SetModelBounds(0, 0, 0, 0, 0, 0);
 
         vtk_contours=vtkSmartPointer<vtkContourFilter>::New();
         vtk_contours->SetInputConnection(vtk_sample->GetOutputPort());
@@ -226,14 +225,18 @@ public:
     {
         //  set coefficients of the superquadric
         //  (dimensions (x0 x1 x2)) (exponents (x3 x4)) (center (x5 x6 x7)) (orientation (x8 x9 x10 x11))
+        //  suppose x8 as angle
         vtk_superquadric->SetScale(r[0], r[1], r[2]);
         vtk_superquadric->SetThetaRoundness(r[3]);
         vtk_superquadric->SetPhiRoundness(r[4]);
+
+        vtk_sample->SetModelBounds(-2*r[0], 2*r[0], -2*r[1], 2*r[1], -2*r[2], 2*r[2]);
 
         //  translate and set the pose of the superquadric
         vtk_superquadric->SetCenter(r[5], r[6], r[7]);
         vtk_superquadric->SetToroidal(0);
         vtk_transform->Identity();
+        vtk_transform->RotateWXYZ(r[8], r[9], r[10], r[11]);
 
     }
 };
@@ -446,27 +449,30 @@ class DisplaySuperQ : public RFModule
         //  the incoming message has the following syntax
         //  (dimensions (x0 x1 x2)) (exponents (x3 x4)) (center (x5 x6 x7)) (orientation (x8 x9 x10 x11))
 
-        Vector superq_dimension;
-        Vector superq_exponents;
-        Vector superq_center;
-        Vector superq_orientation;
-        superq.find("dimensions").asList()->write(superq_dimension);
-        superq.find("exponents").asList()->write(superq_exponents);
-        superq.find("center").asList()->write(superq_center);
-        superq.find("orientation").asList()->write(superq_orientation);
-
         //  pass the parameters as a single vector
         Vector params;
-        for (int i=0; i<superq_dimension.size(); i++)
-            params.push_back(superq_dimension[i]);
-        for (int i=0; i<superq_exponents.size(); i++)
-            params.push_back(superq_exponents[i]);
-        for (int i=0; i<superq_center.size(); i++)
-            params.push_back(superq_center[i]);
-        for (int i=0; i<superq_orientation.size(); i++)
-            params.push_back(superq_orientation[i]);
 
-        vtk_superquadric->set_parameters(params);
+        Bottle *superq_dimension = superq.find("dimensions").asList();
+        for (int i=0; i<superq_dimension->size(); i++)
+            params.push_back(superq_dimension->get(i).asDouble());
+
+        Bottle *superq_exponents = superq.find("exponents").asList();
+        for (int i=0; i<superq_exponents->size(); i++)
+            params.push_back(superq_exponents->get(i).asDouble());
+
+        Bottle *superq_center = superq.find("center").asList();
+        for (int i=0; i<superq_center->size(); i++)
+            params.push_back(superq_center->get(i).asDouble());
+
+        Bottle *superq_orientation = superq.find("orientation").asList();
+        for (int i=0; i<superq_orientation->size(); i++)
+            params.push_back(superq_orientation->get(i).asDouble());
+
+        //  check whether we have a sufficient number of parameters
+        if (params.size() == 12)
+            vtk_superquadric->set_parameters(params);
+        else
+            yError() << "Invalid superquadric";
 
     }
 
