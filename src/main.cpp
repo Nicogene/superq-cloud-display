@@ -205,7 +205,7 @@ public:
 
         vtk_contours=vtkSmartPointer<vtkContourFilter>::New();
         vtk_contours->SetInputConnection(vtk_sample->GetOutputPort());
-        vtk_contours->GenerateValues(1.0,1.0,1.0);
+        vtk_contours->GenerateValues(1,1.0,1.0);
 
         vtk_mapper=vtkSmartPointer<vtkPolyDataMapper>::New();
         vtk_mapper->SetInputConnection(vtk_contours->GetOutputPort());
@@ -322,7 +322,7 @@ class DisplaySuperQ : public RFModule
         superqInPort.open("/" + moduleName + "/superquadric:i");
 
         //  initialize point cloud to display
-        vtk_points = unique_ptr<Points>(new Points(input_points, 2));
+        vtk_points = unique_ptr<Points>(new Points(input_points, 3));
         vtk_points->set_colors(input_points_rgb);
 
         //  initialize superquadric
