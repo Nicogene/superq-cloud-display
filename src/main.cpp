@@ -36,6 +36,9 @@
 #include <vtkRenderer.h>
 #include <vtkVertexGlyphFilter.h>
 #include <vtkCamera.h>
+#include <vtkInteractorStyleSwitch.h>
+
+#include <vtkVersion.h>
 
 
 using namespace std;
@@ -154,7 +157,7 @@ public:
             vtk_colors=vtkSmartPointer<vtkUnsignedCharArray>::New();
             vtk_colors->SetNumberOfComponents(3);
             for (size_t i=0; i<colors.size(); i++)
-                vtk_colors->InsertNextTupleValue(colors[i].data());
+                vtk_colors->InsertNextTypedTuple(colors[i].data());
 
             vtk_polydata->GetPointData()->SetScalars(vtk_colors);
             return true;
@@ -499,6 +502,11 @@ public:
 
 int main(int argc, char *argv[])
 {
+
+    std::cout << vtkVersion::GetVTKSourceVersion() << std::endl;
+    std::cout << vtkVersion::GetVTKMajorVersion() << std::endl;
+    std::cout << vtkVersion::GetVTKMinorVersion() << std::endl;
+
     Network yarp;
     ResourceFinder rf;
     rf.configure(argc, argv);
