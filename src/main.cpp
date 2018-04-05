@@ -198,6 +198,8 @@ public:
         //  Default has radius of 0.5, toroidal off, center at 0.0, scale (1,1,1), size 0.5, phi roundness 1.0, and theta roundness 0.0.
         vtk_superquadric=vtkSmartPointer<vtkSuperquadric>::New();
 
+        vtk_superquadric->SetSize(1.0);
+
         vtk_sample=vtkSmartPointer<vtkSampleFunction>::New();
         vtk_sample->SetSampleDimensions(50,50,50);
         vtk_sample->SetImplicitFunction(vtk_superquadric);
@@ -233,9 +235,10 @@ public:
         vtk_sample->SetModelBounds(-2*r[0], 2*r[0], -2*r[1], 2*r[1], -2*r[2], 2*r[2]);
 
         //  translate and set the pose of the superquadric
-        vtk_superquadric->SetCenter(r[5], r[6], r[7]);
+        vtk_superquadric->SetCenter(0.0, 0.0, 0.0);
         vtk_superquadric->SetToroidal(0);
         vtk_transform->Identity();
+        vtk_transform->Translate(r[5], r[6], r[7]);
         vtk_transform->RotateWXYZ(r[8], r[9], r[10], r[11]);
 
     }
@@ -298,6 +301,7 @@ class DisplaySuperQ : public RFModule
     vtkSmartPointer<vtkAxesActor> vtk_axes;
     vtkSmartPointer<vtkOrientationMarkerWidget> vtk_widget;
     vtkSmartPointer<vtkCamera> vtk_camera;
+    vtkSmartPointer<vtkInteractorStyleSwitch> vtk_style;
     vtkSmartPointer<UpdateCommand> vtk_updateCallback;
 
 
@@ -363,8 +367,12 @@ class DisplaySuperQ : public RFModule
         vtk_camera->SetViewUp(0.0, 0.0, 1.0);
         vtk_renderer->SetActiveCamera(vtk_camera);
 
+        vtk_style=vtkSmartPointer<vtkInteractorStyleSwitch>::New();
+        vtk_style->SetCurrentStyleToTrackballCamera();
+        vtk_renderWindowInteractor->SetInteractorStyle(vtk_style);
+
         vtk_renderWindowInteractor->Initialize();
-        vtk_renderWindowInteractor->CreateRepeatingTimer(1);
+        vtk_renderWindowInteractor->CreateRepeatingTimer(10);
 
         //  set up the visualizer refresh callback
         vtk_updateCallback = vtkSmartPointer<UpdateCommand>::New();
@@ -453,20 +461,24 @@ class DisplaySuperQ : public RFModule
         Vector params;
 
         Bottle *superq_dimension = superq.find("dimensions").asList();
-        for (int i=0; i<superq_dimension->size(); i++)
-            params.push_back(superq_dimension->get(i).asDouble());
+        if (!superq_dimension->isNull())
+            for (int i=0; i<superq_dimension->size(); i++)
+                params.push_back(superq_dimension->get(i).asDouble());
 
         Bottle *superq_exponents = superq.find("exponents").asList();
-        for (int i=0; i<superq_exponents->size(); i++)
-            params.push_back(superq_exponents->get(i).asDouble());
+        if (!superq_exponents->isNull())
+            for (int i=0; i<superq_exponents->size(); i++)
+                params.push_back(superq_exponents->get(i).asDouble());
 
         Bottle *superq_center = superq.find("center").asList();
-        for (int i=0; i<superq_center->size(); i++)
-            params.push_back(superq_center->get(i).asDouble());
+        if (!superq_center->isNull())
+            for (int i=0; i<superq_center->size(); i++)
+                params.push_back(superq_center->get(i).asDouble());
 
         Bottle *superq_orientation = superq.find("orientation").asList();
-        for (int i=0; i<superq_orientation->size(); i++)
-            params.push_back(superq_orientation->get(i).asDouble());
+        if (!superq_orientation->isNull())
+            for (int i=0; i<superq_orientation->size(); i++)
+                params.push_back(superq_orientation->get(i).asDouble());
 
         //  check whether we have a sufficient number of parameters
         if (params.size() == 12)
