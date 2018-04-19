@@ -178,7 +178,7 @@ public:
 class Superquadric : public Object
 {
 protected:
-    vtkSmartPointer<vtkSuperquadric> vtk_superquadric;
+    vtkSmartPointer<vtkSuperquadric> vtk_superquadric_fin_diff;
     vtkSmartPointer<vtkSampleFunction> vtk_sample;
     vtkSmartPointer<vtkContourFilter> vtk_contours;
     vtkSmartPointer<vtkTransform> vtk_transform;
@@ -195,17 +195,17 @@ protected:
 
 public:
     /****************************************************************/
-    Superquadric(const Vector &r)
+    Superquadric(const Vector &r, const double color)
     {
 
         //  Default has radius of 0.5, toroidal off, center at 0.0, scale (1,1,1), size 0.5, phi roundness 1.0, and theta roundness 0.0.
-        vtk_superquadric=vtkSmartPointer<vtkSuperquadric>::New();
+        vtk_superquadric_fin_diff=vtkSmartPointer<vtkSuperquadric>::New();
 
-        vtk_superquadric->SetSize(1.0);
+        vtk_superquadric_fin_diff->SetSize(1.0);
 
         vtk_sample=vtkSmartPointer<vtkSampleFunction>::New();
         vtk_sample->SetSampleDimensions(50,50,50);
-        vtk_sample->SetImplicitFunction(vtk_superquadric);
+        vtk_sample->SetImplicitFunction(vtk_superquadric_fin_diff);
         vtk_sample->SetModelBounds(0, 0, 0, 0, 0, 0);
 
         vtk_contours=vtkSmartPointer<vtkContourFilter>::New();
@@ -214,7 +214,7 @@ public:
 
         vtk_mapper=vtkSmartPointer<vtkPolyDataMapper>::New();
         vtk_mapper->SetInputConnection(vtk_contours->GetOutputPort());
-        vtk_mapper->SetScalarRange(0.0,1.2);
+        vtk_mapper->SetScalarRange(0.0,color);
 
         vtk_actor=vtkSmartPointer<vtkActor>::New();
         vtk_actor->SetMapper(vtk_mapper);
@@ -231,15 +231,15 @@ public:
         //  set coefficients of the superquadric
         //  (dimensions (x0 x1 x2)) (exponents (x3 x4)) (center (x5 x6 x7)) (orientation (x8 x9 x10 x11))
         //  suppose x8 as angle
-        vtk_superquadric->SetScale(r[0], r[1], r[2]);
-        vtk_superquadric->SetThetaRoundness(r[3]);
-        vtk_superquadric->SetPhiRoundness(r[4]);
+        vtk_superquadric_fin_diff->SetScale(r[0], r[1], r[2]);
+        vtk_superquadric_fin_diff->SetThetaRoundness(r[3]);
+        vtk_superquadric_fin_diff->SetPhiRoundness(r[4]);
 
         vtk_sample->SetModelBounds(-2*r[0], 2*r[0], -2*r[1], 2*r[1], -2*r[2], 2*r[2]);
 
         //  translate and set the pose of the superquadric
-        vtk_superquadric->SetCenter(0.0, 0.0, 0.0);
-        vtk_superquadric->SetToroidal(0);
+        vtk_superquadric_fin_diff->SetCenter(0.0, 0.0, 0.0);
+        vtk_superquadric_fin_diff->SetToroidal(0);
         vtk_transform->Identity();
         vtk_transform->Translate(r[5], r[6], r[7]);
         vtk_transform->RotateWXYZ(r[8], r[9], r[10], r[11]);
@@ -251,6 +251,12 @@ public:
 
 class DisplaySuperQ : public RFModule
 {
+    enum class SuperquadricType
+    {
+        //  we need to handle different superquadrics at once
+        ANALYTICAL_GRAD_SQ,
+        FINITE_DIFF_SQ
+    };
 
     class PointCloudProcessor: public TypedReaderCallback<Matrix>
     {
@@ -269,22 +275,24 @@ class DisplaySuperQ : public RFModule
     class SuperquadricProcessor: public TypedReaderCallback<Property>
     {
         DisplaySuperQ *displayer;
+        SuperquadricType sq_type;
         using TypedReaderCallback<Property>::onRead;
         virtual void onRead(Property &superQ)
         {
             //  define what to do when the callback is triggered
             //  i.e. when a superquadric comes in
-            displayer->refreshSuperquadric(superQ);
+            displayer->refreshSuperquadric(superQ, sq_type);
         }
     public:
-        SuperquadricProcessor(DisplaySuperQ *displayer_) : displayer(displayer_) { }
+        SuperquadricProcessor(DisplaySuperQ *displayer_, SuperquadricType type) : displayer(displayer_), sq_type(type) { }
     };
 
     PointCloudProcessor PCproc;
-    SuperquadricProcessor SQproc;
+    SuperquadricProcessor SQprocFD, SQprocAG;   //  FD = finite differences, AG = analytical gradient
 
     BufferedPort<Matrix> pointCloudInPort;
-    BufferedPort<Property> superqInPort;
+    BufferedPort<Property> superq1InPort;
+    BufferedPort<Property> superq2InPort;
 
     string moduleName;
 
@@ -293,7 +301,8 @@ class DisplaySuperQ : public RFModule
     bool closing;
 
     unique_ptr<Points> vtk_points;
-    unique_ptr<Superquadric> vtk_superquadric;
+    unique_ptr<Superquadric> vtk_superquadric_fin_diff;
+    unique_ptr<Superquadric> vtk_superquadric_an_grad;
 
     vector<Vector> input_points;
     vector<vector<unsigned char>> input_points_rgb;
@@ -322,11 +331,13 @@ class DisplaySuperQ : public RFModule
 
         //  attach callbacks to ports
         pointCloudInPort.useCallback(PCproc);
-        superqInPort.useCallback(SQproc);
+        superq1InPort.useCallback(SQprocFD);
+        superq2InPort.useCallback(SQprocAG);
 
         //  open ports
         pointCloudInPort.open("/" + moduleName + "/pointCloud:i");
-        superqInPort.open("/" + moduleName + "/superquadric:i");
+        superq1InPort.open("/" + moduleName + "/superquadricFiniteDiff:i");
+        superq2InPort.open("/" + moduleName + "/superquadricAnalyticalGrad:i");
 
         //  initialize point cloud to display
         vtk_points = unique_ptr<Points>(new Points(input_points, 3));
@@ -334,7 +345,8 @@ class DisplaySuperQ : public RFModule
 
         //  initialize superquadric
         Vector r(11, 0.0);
-        vtk_superquadric = unique_ptr<Superquadric>(new Superquadric(r));
+        vtk_superquadric_fin_diff = unique_ptr<Superquadric>(new Superquadric(r, 2.0));
+        vtk_superquadric_an_grad = unique_ptr<Superquadric>(new Superquadric(r, 1.2));
 
         //  set up renderer window
         vtk_renderer = vtkSmartPointer<vtkRenderer>::New();
@@ -346,7 +358,8 @@ class DisplaySuperQ : public RFModule
 
         //  set up actors for the superquadric and point cloud
         vtk_renderer->AddActor(vtk_points->get_actor());
-        vtk_renderer->AddActor(vtk_superquadric->get_actor());
+        vtk_renderer->AddActor(vtk_superquadric_fin_diff->get_actor());
+        vtk_renderer->AddActor(vtk_superquadric_an_grad->get_actor());
         vtk_renderer->SetBackground(0.1,0.2,0.2);
 
         //  set up axes widget
@@ -383,8 +396,6 @@ class DisplaySuperQ : public RFModule
         vtk_renderWindowInteractor->AddObserver(vtkCommand::TimerEvent, vtk_updateCallback);
         vtk_renderWindowInteractor->Start();
 
-
-
         return true;
 
 
@@ -402,7 +413,8 @@ class DisplaySuperQ : public RFModule
     /****************************************************************/
     bool interruptModule() override
     {
-        superqInPort.interrupt();
+        superq1InPort.interrupt();
+        superq2InPort.interrupt();
         pointCloudInPort.interrupt();
         closing = true;
 
@@ -413,8 +425,10 @@ class DisplaySuperQ : public RFModule
     /****************************************************************/
     bool close() override
     {
-        if (!superqInPort.isClosed())
-            superqInPort.close();
+        if (!superq1InPort.isClosed())
+            superq1InPort.close();
+        if (!superq2InPort.isClosed())
+            superq2InPort.close();
         if (!pointCloudInPort.isClosed())
             pointCloudInPort.close();
 
@@ -454,7 +468,7 @@ class DisplaySuperQ : public RFModule
     }
 
     /****************************************************************/
-    void refreshSuperquadric(const Property &superq)
+    void refreshSuperquadric(const Property &superq, const SuperquadricType sq_type)
     {
         //  somehow set the superquadric parameters, TODO
         //  the incoming message has the following syntax
@@ -485,7 +499,15 @@ class DisplaySuperQ : public RFModule
 
         //  check whether we have a sufficient number of parameters
         if (params.size() == 12)
-            vtk_superquadric->set_parameters(params);
+            switch (sq_type)
+            {
+            case SuperquadricType::FINITE_DIFF_SQ:
+                vtk_superquadric_fin_diff->set_parameters(params);
+                break;
+            case SuperquadricType::ANALYTICAL_GRAD_SQ:
+                vtk_superquadric_an_grad->set_parameters(params);
+                break;
+            }
         else
             yError() << "Invalid superquadric";
 
@@ -495,17 +517,14 @@ class DisplaySuperQ : public RFModule
 public:
 
     //  set up the constructor
-    DisplaySuperQ(): closing(false), PCproc(this), SQproc(this) {}
+    DisplaySuperQ(): closing(false), PCproc(this), SQprocAG(this, SuperquadricType::ANALYTICAL_GRAD_SQ),
+        SQprocFD(this, SuperquadricType::FINITE_DIFF_SQ) {}
 };
 
 /****************************************************************/
 
 int main(int argc, char *argv[])
 {
-
-    std::cout << vtkVersion::GetVTKSourceVersion() << std::endl;
-    std::cout << vtkVersion::GetVTKMajorVersion() << std::endl;
-    std::cout << vtkVersion::GetVTKMinorVersion() << std::endl;
 
     Network yarp;
     ResourceFinder rf;
