@@ -85,7 +85,7 @@ public:
             }
         }
 
-        iren->GetRenderWindow()->SetWindowName("Find Ellipsoid");
+        iren->GetRenderWindow()->SetWindowName("Superquadric viewer");
         iren->Render();
     }
 };
@@ -118,11 +118,11 @@ protected:
 
 public:
     /****************************************************************/
-    Points(const vector<Vector> &points, const int point_size)
+    Points(const PointCloud<DataXYZRGBA> &points, const int point_size)
     {
         vtk_points=vtkSmartPointer<vtkPoints>::New();
         for (size_t i=0; i<points.size(); i++)
-            vtk_points->InsertNextPoint(points[i][0],points[i][1],points[i][2]);
+            vtk_points->InsertNextPoint(points(i).x, points(i).y, points(i).z);
 
         vtk_polydata=vtkSmartPointer<vtkPolyData>::New();
         vtk_polydata->SetPoints(vtk_points);
@@ -140,24 +140,27 @@ public:
     }
 
     /****************************************************************/
-    void set_points(const vector<Vector> &points)
+    void set_points(const PointCloud<DataXYZRGBA> &points)
     {
         vtk_points=vtkSmartPointer<vtkPoints>::New();
         for (size_t i=0; i<points.size(); i++)
-            vtk_points->InsertNextPoint(points[i][0],points[i][1],points[i][2]);
+            vtk_points->InsertNextPoint(points(i).x, points(i).y, points(i).z);
 
         vtk_polydata->SetPoints(vtk_points);
     }
 
     /****************************************************************/
-    bool set_colors(const vector<vector<unsigned char>> &colors)
+    bool set_colors(const PointCloud<DataXYZRGBA> &points)
     {
-        if (colors.size()==vtk_points->GetNumberOfPoints())
+        if (points.size()==vtk_points->GetNumberOfPoints())
         {
             vtk_colors=vtkSmartPointer<vtkUnsignedCharArray>::New();
             vtk_colors->SetNumberOfComponents(3);
-            for (size_t i=0; i<colors.size(); i++)
-                vtk_colors->InsertNextTypedTuple(colors[i].data());
+            for (size_t i=0; i<points.size(); i++)
+            {
+                vector<unsigned char> colors = {points(i).r, points(i).g, points(i).b};
+                vtk_colors->InsertNextTypedTuple(colors.data());
+            }
 
             vtk_polydata->GetPointData()->SetScalars(vtk_colors);
             return true;
@@ -258,11 +261,11 @@ class DisplaySuperQ : public RFModule
         FINITE_DIFF_SQ
     };
 
-    class PointCloudProcessor: public TypedReaderCallback<Matrix>
+    class PointCloudProcessor: public TypedReaderCallback<PointCloud<DataXYZRGBA>>
     {
         DisplaySuperQ *displayer;
-        using TypedReaderCallback<Matrix>::onRead;
-        virtual void onRead(Matrix &pointCloud)
+        using TypedReaderCallback<PointCloud<DataXYZRGBA>>::onRead;
+        virtual void onRead(PointCloud<DataXYZRGBA> &pointCloud)
         {
             //  define what to do when the callback is triggered
             //  i.e. when a point cloud comes in
@@ -290,7 +293,7 @@ class DisplaySuperQ : public RFModule
     PointCloudProcessor PCproc;
     SuperquadricProcessor SQprocFD, SQprocAG;   //  FD = finite differences, AG = analytical gradient
 
-    BufferedPort<Matrix> pointCloudInPort;
+    BufferedPort<PointCloud<DataXYZRGBA>> pointCloudInPort;
     BufferedPort<Property> superq1InPort;
     BufferedPort<Property> superq2InPort;
 
@@ -304,8 +307,8 @@ class DisplaySuperQ : public RFModule
     unique_ptr<Superquadric> vtk_superquadric_fin_diff;
     unique_ptr<Superquadric> vtk_superquadric_an_grad;
 
-    vector<Vector> input_points;
-    vector<vector<unsigned char>> input_points_rgb;
+//    vector<Vector> input_points;
+//    vector<vector<unsigned char>> input_points_rgb;
 
     vtkSmartPointer<vtkRenderer> vtk_renderer;
     vtkSmartPointer<vtkRenderWindow> vtk_renderWindow;
@@ -340,8 +343,8 @@ class DisplaySuperQ : public RFModule
         superq2InPort.open("/" + moduleName + "/superquadricAnalyticalGrad:i");
 
         //  initialize point cloud to display
-        vtk_points = unique_ptr<Points>(new Points(input_points, 3));
-        vtk_points->set_colors(input_points_rgb);
+//        vtk_points = unique_ptr<Points>(new Points(input_points, 3));
+//        vtk_points->set_colors(input_points_rgb);
 
         //  initialize superquadric
         Vector r(11, 0.0);
@@ -437,32 +440,32 @@ class DisplaySuperQ : public RFModule
     }
 
     /****************************************************************/
-    void refreshPointCloud(const Matrix &points)
+    void refreshPointCloud(const PointCloud<DataXYZRGBA> &points)
     {
-       if (points.rows()>0)
+       if (points.size() > 0)
        {
            LockGuard lg(mutex);
 
            //   forget the last point cloud
-           input_points.clear();
-           input_points_rgb.clear();
+//           input_points.clear();
+//           input_points_rgb.clear();
 
-           //   read the yarp::sig::Matrix and fill in the numbers
-           Vector p(3);
-           vector<unsigned char> c(3);
-           for (int idx_point=0; idx_point<points.rows(); idx_point++)
-           {
-               p = points.subrow(idx_point, 0, 3);
-               c[0] = (unsigned char) points(idx_point, 3);
-               c[1] = (unsigned char) points(idx_point, 4);
-               c[2] = (unsigned char) points(idx_point, 5);
-               input_points.push_back(p);
-               input_points_rgb.push_back(c);
-           }
+//           //   read the yarp::sig::PointCloud and fill in the numbers
+//           Vector p(3);
+//           vector<unsigned char> c(3);
+//           for (int idx_point=0; idx_point<points.rows(); idx_point++)
+//           {
+//               p = points.subrow(idx_point, 0, 3);
+//               c[0] = (unsigned char) points(idx_point, 3);
+//               c[1] = (unsigned char) points(idx_point, 4);
+//               c[2] = (unsigned char) points(idx_point, 5);
+//               input_points.push_back(p);
+//               input_points_rgb.push_back(c);
+//           }
 
            //   set the vtk point cloud object with the read data
-           vtk_points->set_points(input_points);
-           vtk_points->set_colors(input_points_rgb);
+           vtk_points->set_points(points);
+           vtk_points->set_colors(points);
 
        }
     }
@@ -470,7 +473,6 @@ class DisplaySuperQ : public RFModule
     /****************************************************************/
     void refreshSuperquadric(const Property &superq, const SuperquadricType sq_type)
     {
-        //  somehow set the superquadric parameters, TODO
         //  the incoming message has the following syntax
         //  (dimensions (x0 x1 x2)) (exponents (x3 x4)) (center (x5 x6 x7)) (orientation (x8 x9 x10 x11))
 
