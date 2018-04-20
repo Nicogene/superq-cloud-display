@@ -346,6 +346,10 @@ class DisplaySuperQ : public RFModule
 //        vtk_points = unique_ptr<Points>(new Points(input_points, 3));
 //        vtk_points->set_colors(input_points_rgb);
 
+        PointCloud<DataXYZRGBA> pc;
+        pc.clear();
+        vtk_points = unique_ptr<Points>(new Points(pc, 3));
+
         //  initialize superquadric
         Vector r(11, 0.0);
         vtk_superquadric_fin_diff = unique_ptr<Superquadric>(new Superquadric(r, 2.0));
