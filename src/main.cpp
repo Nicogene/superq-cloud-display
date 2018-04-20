@@ -307,9 +307,6 @@ class DisplaySuperQ : public RFModule
     unique_ptr<Superquadric> vtk_superquadric_fin_diff;
     unique_ptr<Superquadric> vtk_superquadric_an_grad;
 
-//    vector<Vector> input_points;
-//    vector<vector<unsigned char>> input_points_rgb;
-
     vtkSmartPointer<vtkRenderer> vtk_renderer;
     vtkSmartPointer<vtkRenderWindow> vtk_renderWindow;
     vtkSmartPointer<vtkRenderWindowInteractor> vtk_renderWindowInteractor;
@@ -342,10 +339,7 @@ class DisplaySuperQ : public RFModule
         superq1InPort.open("/" + moduleName + "/superquadricFiniteDiff:i");
         superq2InPort.open("/" + moduleName + "/superquadricAnalyticalGrad:i");
 
-        //  initialize point cloud to display
-//        vtk_points = unique_ptr<Points>(new Points(input_points, 3));
-//        vtk_points->set_colors(input_points_rgb);
-
+        //  initialize empty point cloud to display
         PointCloud<DataXYZRGBA> pc;
         pc.clear();
         vtk_points = unique_ptr<Points>(new Points(pc, 3));
@@ -405,7 +399,6 @@ class DisplaySuperQ : public RFModule
 
         return true;
 
-
     }
 
     /****************************************************************/
@@ -449,23 +442,6 @@ class DisplaySuperQ : public RFModule
        if (points.size() > 0)
        {
            LockGuard lg(mutex);
-
-           //   forget the last point cloud
-//           input_points.clear();
-//           input_points_rgb.clear();
-
-//           //   read the yarp::sig::PointCloud and fill in the numbers
-//           Vector p(3);
-//           vector<unsigned char> c(3);
-//           for (int idx_point=0; idx_point<points.rows(); idx_point++)
-//           {
-//               p = points.subrow(idx_point, 0, 3);
-//               c[0] = (unsigned char) points(idx_point, 3);
-//               c[1] = (unsigned char) points(idx_point, 4);
-//               c[2] = (unsigned char) points(idx_point, 5);
-//               input_points.push_back(p);
-//               input_points_rgb.push_back(c);
-//           }
 
            //   set the vtk point cloud object with the read data
            vtk_points->set_points(points);
