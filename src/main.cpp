@@ -181,15 +181,15 @@ public:
 class Superquadric : public Object
 {
 protected:
-    vtkSmartPointer<vtkSuperquadric> vtk_superquadric_fin_diff;
+    vtkSmartPointer<vtkSuperquadric> vtk_superquadric;
     vtkSmartPointer<vtkSampleFunction> vtk_sample;
     vtkSmartPointer<vtkContourFilter> vtk_contours;
     vtkSmartPointer<vtkTransform> vtk_transform;
 
     /*
      * Parameters:
-     * epsilon_1 is e (roundedness/squareness east/west - theta roundedness)
-     * epsilon_2 is n (roundedness/sqareness north/south - phi roundedness)
+     * epsilon_2 is e (roundedness/squareness east/west - theta roundedness)
+     * epsilon_1 is n (roundedness/sqareness north/south - phi roundedness)
      * scale is sx, sy, sz
      * center is cx, cy, cz
      * rotation parameters?
@@ -202,13 +202,13 @@ public:
     {
 
         //  Default has radius of 0.5, toroidal off, center at 0.0, scale (1,1,1), size 0.5, phi roundness 1.0, and theta roundness 0.0.
-        vtk_superquadric_fin_diff=vtkSmartPointer<vtkSuperquadric>::New();
+        vtk_superquadric=vtkSmartPointer<vtkSuperquadric>::New();
 
-        vtk_superquadric_fin_diff->SetSize(1.0);
+        vtk_superquadric->SetSize(1.0);
 
         vtk_sample=vtkSmartPointer<vtkSampleFunction>::New();
         vtk_sample->SetSampleDimensions(50,50,50);
-        vtk_sample->SetImplicitFunction(vtk_superquadric_fin_diff);
+        vtk_sample->SetImplicitFunction(vtk_superquadric);
         vtk_sample->SetModelBounds(0, 0, 0, 0, 0, 0);
 
         vtk_contours=vtkSmartPointer<vtkContourFilter>::New();
@@ -234,15 +234,19 @@ public:
         //  set coefficients of the superquadric
         //  (dimensions (x0 x1 x2)) (exponents (x3 x4)) (center (x5 x6 x7)) (orientation (x8 x9 x10 x11))
         //  suppose x8 as angle
-        vtk_superquadric_fin_diff->SetScale(r[0], r[1], r[2]);
-        vtk_superquadric_fin_diff->SetThetaRoundness(r[3]);
-        vtk_superquadric_fin_diff->SetPhiRoundness(r[4]);
+        vtk_superquadric->SetScale(r[0], r[1], r[2]);
+        vtk_superquadric->SetPhiRoundness(r[3]);
+        vtk_superquadric->SetThetaRoundness(r[4]);
+
+
+        yInfo() << "Phi roundedness:" << r[3];
+        yInfo() << "Theta roundedness:" << r[4];
 
         vtk_sample->SetModelBounds(-2*r[0], 2*r[0], -2*r[1], 2*r[1], -2*r[2], 2*r[2]);
 
         //  translate and set the pose of the superquadric
-        vtk_superquadric_fin_diff->SetCenter(0.0, 0.0, 0.0);
-        vtk_superquadric_fin_diff->SetToroidal(0);
+        vtk_superquadric->SetCenter(0.0, 0.0, 0.0);
+        vtk_superquadric->SetToroidal(0);
         vtk_transform->Identity();
         vtk_transform->Translate(r[5], r[6], r[7]);
         vtk_transform->RotateWXYZ(r[8], r[9], r[10], r[11]);
