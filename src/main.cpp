@@ -281,25 +281,29 @@ class DisplaySuperQ : public RFModule
             Bottle sq_reply;
             sq_reply.clear();
 
-            superq2RPC.write(pointCloud, sq_reply);
+            displayer->superq2RPC.write(pointCloud, sq_reply);
             Property superquadric_params;
 
             Bottle bottle;
             Bottle &b1=bottle.addList();
-            b1.addDouble(sq_reply.get(4)); b1.addDouble(sq_reply.get(5)); b1.addDouble(sq_reply.get(6));
+            b1.addDouble(sq_reply.get(4).asDouble());
+            b1.addDouble(sq_reply.get(5).asDouble());
+            b1.addDouble(sq_reply.get(6).asDouble());
             superquadric_params.put("dimensions", bottle.get(0));
 
             Bottle &b2=bottle.addList();
-            b2.addDouble(sq_reply.get(8)); b2.addDouble(sq_reply.get(9));
+            b2.addDouble(sq_reply.get(8).asDouble());
+            b2.addDouble(sq_reply.get(9).asDouble());
             superquadric_params.put("exponents", bottle.get(1));
 
             Bottle &b3=bottle.addList();
-            b3.addDouble(sq_reply.get(0)); b3.addDouble(sq_reply.get(1)); b3.addDouble(sq_reply.get(2));
+            b3.addDouble(sq_reply.get(0).asDouble());
+            b3.addDouble(sq_reply.get(1).asDouble());
+            b3.addDouble(sq_reply.get(2).asDouble());
             superquadric_params.put("center", bottle.get(2));
 
             Bottle &b4=bottle.addList();
-            Vector orient=dcm2axis(euler2dcm(sol.subVector(8,10)));
-            b4.addDouble(sq_reply.get(3)); b4.addDouble(0.0); b4.addDouble(0.0); b4.addDouble(1.0);
+            b4.addDouble(sq_reply.get(3).asDouble()); b4.addDouble(0.0); b4.addDouble(0.0); b4.addDouble(1.0);
             superquadric_params.put("orientation", bottle.get(3));
 
             displayer->refreshSuperquadric(superquadric_params, SuperquadricType::ANALYTICAL_GRAD_SQ);
@@ -470,8 +474,7 @@ class DisplaySuperQ : public RFModule
             superq1InPort.close();
 //        if (!superq1RPC.isClosed())
 //            superq1RPC.close();
-        if (!superq2RPC.isClosed())
-            superq2RPC.close();
+        superq2RPC.close();
         if (!superq2InPort.isClosed())
             superq2InPort.close();
         if (!pointCloudInPort.isClosed())
