@@ -296,8 +296,8 @@ class DisplaySuperQ : public RFModule
             superquadric_params.put("dimensions", bottle.get(0));
 
             Bottle &b2=bottle.addList();
+            b2.addDouble(sq_reply.get(7).asDouble());
             b2.addDouble(sq_reply.get(8).asDouble());
-            b2.addDouble(sq_reply.get(9).asDouble());
             superquadric_params.put("exponents", bottle.get(1));
 
             Bottle &b3=bottle.addList();
