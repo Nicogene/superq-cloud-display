@@ -508,6 +508,9 @@ class DisplaySuperQ : public RFModule
         //  the incoming message has the following syntax
         //  (dimensions (x0 x1 x2)) (exponents (x3 x4)) (center (x5 x6 x7)) (orientation (x8 x9 x10 x11))
 
+        //  Show superquadric info for debugging
+        yInfo() << "Superquadric: " << superq.toString();
+
         //  pass the parameters as a single vector
         Vector params;
 
