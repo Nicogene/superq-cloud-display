@@ -181,15 +181,15 @@ public:
 class Superquadric : public Object
 {
 protected:
-    vtkSmartPointer<vtkSuperquadric> vtk_superquadric_fin_diff;
+    vtkSmartPointer<vtkSuperquadric> vtk_superquadric;
     vtkSmartPointer<vtkSampleFunction> vtk_sample;
     vtkSmartPointer<vtkContourFilter> vtk_contours;
     vtkSmartPointer<vtkTransform> vtk_transform;
 
     /*
      * Parameters:
-     * epsilon_1 is e (roundedness/squareness east/west - theta roundedness)
-     * epsilon_2 is n (roundedness/sqareness north/south - phi roundedness)
+     * epsilon_2 is e (roundedness/squareness east/west - theta roundedness)
+     * epsilon_1 is n (roundedness/sqareness north/south - phi roundedness)
      * scale is sx, sy, sz
      * center is cx, cy, cz
      * rotation parameters?
@@ -202,13 +202,13 @@ public:
     {
 
         //  Default has radius of 0.5, toroidal off, center at 0.0, scale (1,1,1), size 0.5, phi roundness 1.0, and theta roundness 0.0.
-        vtk_superquadric_fin_diff=vtkSmartPointer<vtkSuperquadric>::New();
+        vtk_superquadric=vtkSmartPointer<vtkSuperquadric>::New();
 
-        vtk_superquadric_fin_diff->SetSize(1.0);
+        vtk_superquadric->SetSize(1.0);
 
         vtk_sample=vtkSmartPointer<vtkSampleFunction>::New();
         vtk_sample->SetSampleDimensions(50,50,50);
-        vtk_sample->SetImplicitFunction(vtk_superquadric_fin_diff);
+        vtk_sample->SetImplicitFunction(vtk_superquadric);
         vtk_sample->SetModelBounds(0, 0, 0, 0, 0, 0);
 
         vtk_contours=vtkSmartPointer<vtkContourFilter>::New();
@@ -234,15 +234,19 @@ public:
         //  set coefficients of the superquadric
         //  (dimensions (x0 x1 x2)) (exponents (x3 x4)) (center (x5 x6 x7)) (orientation (x8 x9 x10 x11))
         //  suppose x8 as angle
-        vtk_superquadric_fin_diff->SetScale(r[0], r[1], r[2]);
-        vtk_superquadric_fin_diff->SetThetaRoundness(r[3]);
-        vtk_superquadric_fin_diff->SetPhiRoundness(r[4]);
+        vtk_superquadric->SetScale(r[0], r[1], r[2]);
+        vtk_superquadric->SetPhiRoundness(r[3]);
+        vtk_superquadric->SetThetaRoundness(r[4]);
+
+
+        yInfo() << "Phi roundedness:" << r[3];
+        yInfo() << "Theta roundedness:" << r[4];
 
         vtk_sample->SetModelBounds(-2*r[0], 2*r[0], -2*r[1], 2*r[1], -2*r[2], 2*r[2]);
 
         //  translate and set the pose of the superquadric
-        vtk_superquadric_fin_diff->SetCenter(0.0, 0.0, 0.0);
-        vtk_superquadric_fin_diff->SetToroidal(0);
+        vtk_superquadric->SetCenter(0.0, 0.0, 0.0);
+        vtk_superquadric->SetToroidal(0);
         vtk_transform->Identity();
         vtk_transform->Translate(r[5], r[6], r[7]);
         vtk_transform->RotateWXYZ(r[8], r[9], r[10], r[11]);
@@ -270,6 +274,44 @@ class DisplaySuperQ : public RFModule
             //  define what to do when the callback is triggered
             //  i.e. when a point cloud comes in
             displayer->refreshPointCloud(pointCloud);
+            //  TODO: a point cloud that gets read here should trigger the acquisition of
+            //  both superquadrics with rpcs. We don't have the rpc from superquadric-model
+            //  fixed yet so we only trigger the acquisition from find-superquadric
+            //  via displayer->refreshSuperquadric
+            //  prepare cmd, reply for find-superquadric
+            //  write on rpc port
+            //  convert syntax of response into a Property
+            //  call refreshSuperquadric
+            Bottle sq_reply;
+            sq_reply.clear();
+
+            displayer->superq2RPC.write(pointCloud, sq_reply);
+            Property superquadric_params;
+
+            Bottle bottle;
+            Bottle &b1=bottle.addList();
+            b1.addDouble(sq_reply.get(4).asDouble());
+            b1.addDouble(sq_reply.get(5).asDouble());
+            b1.addDouble(sq_reply.get(6).asDouble());
+            superquadric_params.put("dimensions", bottle.get(0));
+
+            Bottle &b2=bottle.addList();
+            b2.addDouble(sq_reply.get(7).asDouble());
+            b2.addDouble(sq_reply.get(8).asDouble());
+            superquadric_params.put("exponents", bottle.get(1));
+
+            Bottle &b3=bottle.addList();
+            b3.addDouble(sq_reply.get(0).asDouble());
+            b3.addDouble(sq_reply.get(1).asDouble());
+            b3.addDouble(sq_reply.get(2).asDouble());
+            superquadric_params.put("center", bottle.get(2));
+
+            Bottle &b4=bottle.addList();
+            b4.addDouble(sq_reply.get(3).asDouble()); b4.addDouble(0.0); b4.addDouble(0.0); b4.addDouble(1.0);
+            superquadric_params.put("orientation", bottle.get(3));
+
+            displayer->refreshSuperquadric(superquadric_params, SuperquadricType::ANALYTICAL_GRAD_SQ);
+
         }
     public:
         PointCloudProcessor(DisplaySuperQ *displayer_) : displayer(displayer_) { }
@@ -296,6 +338,9 @@ class DisplaySuperQ : public RFModule
     BufferedPort<PointCloud<DataXYZRGBA>> pointCloudInPort;
     BufferedPort<Property> superq1InPort;
     BufferedPort<Property> superq2InPort;
+
+    RpcClient superq1RPC;        //  not needed for now!
+    RpcClient superq2RPC;
 
     string moduleName;
 
@@ -338,6 +383,8 @@ class DisplaySuperQ : public RFModule
         pointCloudInPort.open("/" + moduleName + "/pointCloud:i");
         superq1InPort.open("/" + moduleName + "/superquadricFiniteDiff:i");
         superq2InPort.open("/" + moduleName + "/superquadricAnalyticalGrad:i");
+        //superq1RPC.open("/" + moduleName + "/superquadricFiniteDiff:rpc");
+        superq2RPC.open("/" + moduleName + "/superquadricAnalyticalGrad:rpc");
 
         //  initialize empty point cloud to display
         PointCloud<DataXYZRGBA> pc;
@@ -415,6 +462,8 @@ class DisplaySuperQ : public RFModule
     {
         superq1InPort.interrupt();
         superq2InPort.interrupt();
+        //superq1RPC.interrupt();
+        superq2RPC.interrupt();
         pointCloudInPort.interrupt();
         closing = true;
 
@@ -427,6 +476,9 @@ class DisplaySuperQ : public RFModule
     {
         if (!superq1InPort.isClosed())
             superq1InPort.close();
+//        if (!superq1RPC.isClosed())
+//            superq1RPC.close();
+        superq2RPC.close();
         if (!superq2InPort.isClosed())
             superq2InPort.close();
         if (!pointCloudInPort.isClosed())
@@ -455,6 +507,9 @@ class DisplaySuperQ : public RFModule
     {
         //  the incoming message has the following syntax
         //  (dimensions (x0 x1 x2)) (exponents (x3 x4)) (center (x5 x6 x7)) (orientation (x8 x9 x10 x11))
+
+        //  Show superquadric info for debugging
+        yInfo() << "Superquadric: " << superq.toString();
 
         //  pass the parameters as a single vector
         Vector params;
