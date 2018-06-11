@@ -37,13 +37,15 @@
 #include <vtkVertexGlyphFilter.h>
 #include <vtkCamera.h>
 #include <vtkInteractorStyleSwitch.h>
+#include <vtkMatrix4x4.h>
 
 #include <vtkVersion.h>
-
 
 using namespace std;
 using namespace yarp::os;
 using namespace yarp::sig;
+
+Mutex mutex;
 
 /****************************************************************/
 
@@ -74,6 +76,7 @@ public:
     void Execute(vtkObject *caller, unsigned long vtkNotUsed(eventId),
                  void *vtkNotUsed(callData))
     {
+        LockGuard lg(mutex);
         vtkRenderWindowInteractor* iren=static_cast<vtkRenderWindowInteractor*>(caller);
         if (closing!=nullptr)
         {
@@ -252,17 +255,82 @@ public:
         vtk_transform->RotateWXYZ(r[8], r[9], r[10], r[11]);
 
     }
+
+    /****************************************************************/
+    Vector getCenter()
+    {
+        //  simply get the superquadric center as a yarp::sig::Vector
+        double *center;
+        Vector center_vec;
+        center = vtk_superquadric->GetCenter();
+        center_vec.resize(3);
+        for (size_t idx = 0; idx < 3; idx++)
+        {
+            center_vec(idx) = center[idx];
+        }
+
+        return center_vec;
+    }
+
+    /****************************************************************/
+    Vector getAxesSize()
+    {
+        //  simply get the superquadric axes size as a yarp::sig::Vector
+        double *axes;
+        Vector axes_vec;
+        axes = vtk_superquadric->GetScale();
+        axes_vec.resize(3);
+        for (size_t idx = 0; idx<3; idx++)
+        {
+            axes_vec(idx) = axes[idx];
+        }
+
+        //  scale the axes wrt superquadric size
+        using namespace yarp::math;
+        axes_vec *= vtk_superquadric->GetSize();
+
+        return axes_vec;
+    }
+
+    /****************************************************************/
+    Vector getOrientationWXYZ()
+    {
+        //  convert axis-angle orientation representation to a yarp::sig::Vector
+        double* orientationWXYZ;
+        orientationWXYZ = vtk_transform->GetOrientationWXYZ();
+        Vector orientationWXYZ_vec;
+        orientationWXYZ_vec.resize(4);
+        for (size_t idx = 0; idx < 4; ++idx) {
+            orientationWXYZ_vec(idx) = orientationWXYZ[idx];
+        }
+
+        return orientationWXYZ_vec;
+    }
+
 };
 
 /****************************************************************/
 
-class DisplaySuperQ : public RFModule
+class DisplaySuperQ : public RFModule, RateThread
 {
     enum class SuperquadricType
     {
         //  we need to handle different superquadrics at once
         ANALYTICAL_GRAD_SQ,
         FINITE_DIFF_SQ
+    };
+
+    struct grasp_axis {
+
+        vtkSmartPointer<vtkAxesActor> ax_actor;
+        vtkSmartPointer<vtkTransform> ax_transform;
+        Matrix ax_orientation;
+        Vector ax_size;
+
+        grasp_axis(): ax_orientation(3,3), ax_size(3) {
+            ax_actor = vtkSmartPointer<vtkAxesActor>::New();
+            ax_transform = vtkSmartPointer<vtkTransform>::New();
+        }
     };
 
     class PointCloudProcessor: public TypedReaderCallback<PointCloud<DataXYZRGBA>>
@@ -332,6 +400,38 @@ class DisplaySuperQ : public RFModule
         SuperquadricProcessor(DisplaySuperQ *displayer_, SuperquadricType type) : displayer(displayer_), sq_type(type) { }
     };
 
+    class GraspPose
+    {
+        vtkSmartPointer<vtkAxesActor> pose_vtk_actor;
+        vtkSmartPointer<vtkTransform> pose_vtk_transform;
+        Matrix pose_orientation;
+        Vector axis_offsets;
+
+    public:
+        GraspPose(): pose_orientation(3,3), axis_offsets(3)
+        {
+            pose_vtk_actor = vtkSmartPointer<vtkAxesActor>::New();
+            pose_vtk_transform = vtkSmartPointer<vtkTransform>::New();
+            pose_orientation.zero();
+            axis_offsets.zero();
+        }
+
+        vtkSmartPointer<vtkMatrix4x4> yarpMatToVTKMat (const Matrix m_yarp)
+        {
+            vtkSmartPointer<vtkMatrix4x4> m_vtk = vtkSmartPointer<vtkMatrix4x4>::New();
+            m_vtk->Zero();
+            for (size_t i = 0; i<4; i++)
+            {
+                for (size_t j=0; j<4; j++)
+                {
+                    m_vtk->SetElement(i, j, m_yarp(i,j));
+                }
+            }
+            return m_vtk;
+        }
+
+    };
+
     PointCloudProcessor PCproc;
     SuperquadricProcessor SQprocFD, SQprocAG;   //  FD = finite differences, AG = analytical gradient
 
@@ -343,8 +443,6 @@ class DisplaySuperQ : public RFModule
     RpcClient superq2RPC;
 
     string moduleName;
-
-    Mutex mutex;
 
     bool closing;
 
@@ -361,6 +459,7 @@ class DisplaySuperQ : public RFModule
     vtkSmartPointer<vtkInteractorStyleSwitch> vtk_style;
     vtkSmartPointer<UpdateCommand> vtk_updateCallback;
 
+    std::vector<grasp_axis> pose_candidates;
 
     bool configure(ResourceFinder &rf) override
     {
@@ -442,6 +541,9 @@ class DisplaySuperQ : public RFModule
         vtk_updateCallback = vtkSmartPointer<UpdateCommand>::New();
         vtk_updateCallback->set_closing(closing);
         vtk_renderWindowInteractor->AddObserver(vtkCommand::TimerEvent, vtk_updateCallback);
+
+        this->start();
+
         vtk_renderWindowInteractor->Start();
 
         return true;
@@ -452,7 +554,6 @@ class DisplaySuperQ : public RFModule
     bool updateModule() override
     {
         //  do something during update?
-
         return true;
 
     }
@@ -466,6 +567,9 @@ class DisplaySuperQ : public RFModule
         superq2RPC.interrupt();
         pointCloudInPort.interrupt();
         closing = true;
+
+        //  interrupt the RateThread loop
+        this->stop();
 
         return true;
 
@@ -489,11 +593,39 @@ class DisplaySuperQ : public RFModule
     }
 
     /****************************************************************/
+    virtual bool threadInit() override
+    {
+        yInfo() << "Grasp computation thread starting...";
+        return true;
+    }
+
+    /****************************************************************/
+    virtual void afterStart(bool s) override
+    {
+        if (s)
+            yInfo() << "Grasp computation thread started.";
+        else
+            yInfo() << "Grasp computation thread failed to start!";
+    }
+
+    /****************************************************************/
+    virtual void run() override
+    {
+        refreshGraspComputation();
+    }
+
+    /****************************************************************/
+    virtual void threadRelease() override
+    {
+        yInfo() << "Grasp computation thread terminating.";
+    }
+
+    /****************************************************************/
     void refreshPointCloud(const PointCloud<DataXYZRGBA> &points)
     {
        if (points.size() > 0)
        {
-           LockGuard lg(mutex);
+           //LockGuard lg(mutex);
 
            //   set the vtk point cloud object with the read data
            vtk_points->set_points(points);
@@ -551,10 +683,112 @@ class DisplaySuperQ : public RFModule
     }
 
     /****************************************************************/
+    void refreshGraspComputation()
+    {
+        //  extract parameters from superquadric, compute possible grasps with simple heuristics
+        LockGuard lg(mutex);
+
+        for (grasp_axis candidate: pose_candidates)
+        {
+            vtk_renderer->RemoveActor(candidate.ax_actor);
+        }
+
+        pose_candidates.clear();
+
+        //  get center, orientation and axes size
+        Vector superquadric_center = vtk_superquadric_an_grad->getCenter();
+        Vector superquadric_WXYZorientation = vtk_superquadric_an_grad->getOrientationWXYZ();
+        Vector superquadric_axis_size = vtk_superquadric_an_grad->getAxesSize();
+
+        //  get rotation matrix wrt root reference frame
+        Matrix superquadric_orientation = yarp::math::axis2dcm(superquadric_WXYZorientation).submatrix(0, 2, 0, 2);
+        yDebug() << "Superquadric orientation: " << superquadric_orientation.toString();
+
+        //  extract axes orientations and size wrt root ref frame
+        Vector sq_axis_x = superquadric_orientation.getCol(0);
+        Vector sq_axis_y = superquadric_orientation.getCol(1);
+        Vector sq_axis_z = superquadric_orientation.getCol(2);
+
+        using namespace yarp::math;
+
+        //  create suitable candidates for score evaluation
+        //  first create the search space for gx
+        //  then create search space for gy
+        std::vector<Vector> search_space_gx = {sq_axis_x, -1*sq_axis_x, sq_axis_y, -1*sq_axis_y};
+        std::vector<Vector> search_space_gy = {sq_axis_x, -1*sq_axis_x, sq_axis_y, -1*sq_axis_y, sq_axis_z, -1*sq_axis_z};
+
+        //  create pose candidates
+        for (size_t idx = 0; idx < search_space_gx.size(); idx++)
+        {
+            Vector gx = search_space_gx[idx];
+            //  TODO: filter candidates wrt grasp width
+            //  for each candidate gx, generate a number of candidates for gy
+            for (size_t jdx = 0; jdx < search_space_gy.size(); jdx++)
+            {
+                Vector gy = search_space_gy[jdx];
+                //  keep candidate if orthogonal to gx
+                //  TODO: filter candidate wrt palm width
+                if (dot(gx,gy)*dot(gx,gy) < 0.0001)
+                {
+                    //  if candidate is good, set gx, gy
+                    grasp_axis candidate;
+                    candidate.ax_orientation.setCol(0, gx);
+                    candidate.ax_orientation.setCol(1, gy);
+                    //  set gz
+                    yDebug() << "Candidate gx: " << gx.toString() << " Candidate gy: " << gy.toString();
+                    yDebug() << "Cross product: " << cross(gx,gy).toString();
+                    candidate.ax_orientation.setCol(2, cross(gx, gy));
+                    //  set axes size
+                    candidate.ax_size(0) = superquadric_axis_size(idx/2);   // superquadric size along gx
+                    candidate.ax_size(1) = superquadric_axis_size(jdx/2);   // superquadric size along gy
+                    candidate.ax_size(2) = superquadric_axis_size(3 - idx/2 - jdx/2);   //THIS IS VERY DODGY; THERE MIGHT BE A BUG HERE
+                    pose_candidates.push_back(candidate);
+                }
+            }
+        }
+
+        //  add all candidates to render window
+        //  TODO: first generate all candidates, then filter them according to their gx and gy size, and position wrt table
+        for (grasp_axis candidate:pose_candidates)
+        {
+            Matrix transform_matrix(4,4);
+            transform_matrix.zero();
+            transform_matrix.setSubmatrix(candidate.ax_orientation, 0, 0);
+            transform_matrix(3,3) = 1;
+            //  shift along gz by fixed amount
+            Vector gz = candidate.ax_orientation.getCol(2);
+            transform_matrix.setSubcol(gz*2, 0, 3);
+            candidate.ax_transform->SetMatrix(yarpMatToVTKMat(transform_matrix));
+            candidate.ax_actor->SetUserTransform(candidate.ax_transform);
+            vtk_renderer->AddActor(candidate.ax_actor);
+        }
+
+        yDebug() << "refreshing grasp computation";
+        yDebug() << "Props rendered: " << vtk_renderer->GetNumberOfPropsRendered();
+
+        return;
+
+    }
+
+    /****************************************************************/
+    vtkSmartPointer<vtkMatrix4x4> yarpMatToVTKMat (const Matrix m_yarp)
+    {
+        vtkSmartPointer<vtkMatrix4x4> m_vtk = vtkSmartPointer<vtkMatrix4x4>::New();
+        m_vtk->Zero();
+        for (size_t i = 0; i<4; i++)
+        {
+            for (size_t j=0; j<4; j++)
+            {
+                m_vtk->SetElement(i, j, m_yarp(i,j));
+            }
+        }
+        return m_vtk;
+    }
+
 public:
 
     //  set up the constructor
-    DisplaySuperQ(): closing(false), PCproc(this), SQprocAG(this, SuperquadricType::ANALYTICAL_GRAD_SQ),
+    DisplaySuperQ(): RateThread(10000), closing(false), PCproc(this), SQprocAG(this, SuperquadricType::ANALYTICAL_GRAD_SQ),
         SQprocFD(this, SuperquadricType::FINITE_DIFF_SQ) {}
 };
 
