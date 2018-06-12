@@ -519,7 +519,7 @@ class DisplaySuperQ : public RFModule, RateThread
         vtk_updateCallback->set_closing(closing);
         vtk_renderWindowInteractor->AddObserver(vtkCommand::TimerEvent, vtk_updateCallback);
 
-        //this->start();
+        this->start();
 
         vtk_renderWindowInteractor->Start();
 
@@ -602,7 +602,7 @@ class DisplaySuperQ : public RFModule, RateThread
     {
        if (points.size() > 0)
        {
-           //LockGuard lg(mutex);
+           LockGuard lg(mutex);
 
            //   set the vtk point cloud object with the read data
            vtk_points->set_points(points);
@@ -730,24 +730,36 @@ class DisplaySuperQ : public RFModule, RateThread
         //  TODO: first generate all candidates, then filter them according to their gx and gy size, and position wrt table
         for (grasp_axis candidate:pose_candidates)
         {
+            //  make a 4x4 zero-filled matrix and put in the 3x3 rotation of gx, gy, gz
             Matrix transform_matrix(4,4);
             transform_matrix.zero();
             transform_matrix.setSubmatrix(candidate.ax_orientation, 0, 0);
+
+            //  make the 4x4 homogeneous
             transform_matrix(3,3) = 1;
-            //  shift along gz by fixed amount
+
+            //  the translation part of the 4x4 corresponds to the superquadric center
             yDebug() << "Superquadric center: " << superquadric_center.toString();
             transform_matrix.setSubcol(superquadric_center, 0, 3);
+
+            //  shift along gz by the superquadric size along such axis
+            //  assuming right hand grasp: move the grasp along -gx
             Vector gz = candidate.ax_orientation.getCol(2);
             double z_offset = candidate.ax_size(2);
             yDebug() << "Homogeneous matrix without z translation: ";
             yDebug() << transform_matrix.toString();
             yDebug() << "Axis size: " << candidate.ax_size.toString();
-            transform_matrix.setSubcol(transform_matrix.subcol(0,3,3) + z_offset*gz/norm(gz), 0, 3);
+            transform_matrix.setSubcol(transform_matrix.subcol(0,3,3) - z_offset*gz/norm(gz), 0, 3);
             yDebug() << "Homogeneous matrix with z translation: ";
             yDebug() << transform_matrix.toString();
+
+            //  set the vtk transform to this 4x4 transformation matrix
             candidate.ax_transform->SetMatrix(yarpMatToVTKMat(transform_matrix));
             candidate.ax_actor->SetUserTransform(candidate.ax_transform);
+
+            //  add the axis triad as actor for the rendering
             candidate.ax_actor->AxisLabelsOff();
+            candidate.ax_actor->SetTotalLength(0.1, 0.1, 0.1);
             vtk_renderer->AddActor(candidate.ax_actor);
         }
 
@@ -776,7 +788,7 @@ class DisplaySuperQ : public RFModule, RateThread
 public:
 
     //  set up the constructor
-    DisplaySuperQ(): RateThread(1000), closing(false), PCproc(this), SQprocAG(this, SuperquadricType::ANALYTICAL_GRAD_SQ),
+    DisplaySuperQ(): RateThread(5000), closing(false), PCproc(this), SQprocAG(this, SuperquadricType::ANALYTICAL_GRAD_SQ),
         SQprocFD(this, SuperquadricType::FINITE_DIFF_SQ) {}
 };
 
