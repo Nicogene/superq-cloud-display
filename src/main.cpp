@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include <cmath>
 
 #include <yarp/os/all.h>
 #include <yarp/sig/all.h>
@@ -303,13 +304,10 @@ public:
         //  vtk considers axis angle to be  [theta x y z]
         Vector orientationWXYZ_vec;
         orientationWXYZ_vec.resize(4);
-        for (size_t idx = 0; idx < 4; ++idx) {
-            orientationWXYZ_vec(idx) = orientationWXYZ[idx];
-        }
-
-        double tmp = orientationWXYZ_vec(0);
-        orientationWXYZ_vec(0) = orientationWXYZ_vec(3);
-        orientationWXYZ_vec(3) = tmp;
+        orientationWXYZ_vec(0) = orientationWXYZ[1];
+        orientationWXYZ_vec(1) = orientationWXYZ[2];
+        orientationWXYZ_vec(2) = orientationWXYZ[3];
+        orientationWXYZ_vec(3) = orientationWXYZ[0];
 
         yDebug() << "Superquadric processor: orientation WXYZ orientation is " << orientationWXYZ_vec.toString();
 
@@ -519,7 +517,7 @@ class DisplaySuperQ : public RFModule, RateThread
         vtk_updateCallback->set_closing(closing);
         vtk_renderWindowInteractor->AddObserver(vtkCommand::TimerEvent, vtk_updateCallback);
 
-        this->start();
+        //this->start();
 
         vtk_renderWindowInteractor->Start();
 
@@ -680,6 +678,7 @@ class DisplaySuperQ : public RFModule, RateThread
         Vector superquadric_axis_size = vtk_superquadric_an_grad->getAxesSize();
 
         //  get rotation matrix wrt root reference frame
+        superquadric_WXYZorientation(3) = superquadric_WXYZorientation(3) / (180/M_PI);
         Matrix superquadric_orientation = yarp::math::axis2dcm(superquadric_WXYZorientation).submatrix(0, 2, 0, 2);
         yDebug() << "Superquadric orientation: " << superquadric_orientation.toString();
 
@@ -759,7 +758,7 @@ class DisplaySuperQ : public RFModule, RateThread
 
             //  add the axis triad as actor for the rendering
             candidate.ax_actor->AxisLabelsOff();
-            candidate.ax_actor->SetTotalLength(0.1, 0.1, 0.1);
+            candidate.ax_actor->SetTotalLength(0.02, 0.02, 0.02);
             vtk_renderer->AddActor(candidate.ax_actor);
         }
 
