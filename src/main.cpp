@@ -400,38 +400,6 @@ class DisplaySuperQ : public RFModule, RateThread
         SuperquadricProcessor(DisplaySuperQ *displayer_, SuperquadricType type) : displayer(displayer_), sq_type(type) { }
     };
 
-    class GraspPose
-    {
-        vtkSmartPointer<vtkAxesActor> pose_vtk_actor;
-        vtkSmartPointer<vtkTransform> pose_vtk_transform;
-        Matrix pose_orientation;
-        Vector axis_offsets;
-
-    public:
-        GraspPose(): pose_orientation(3,3), axis_offsets(3)
-        {
-            pose_vtk_actor = vtkSmartPointer<vtkAxesActor>::New();
-            pose_vtk_transform = vtkSmartPointer<vtkTransform>::New();
-            pose_orientation.zero();
-            axis_offsets.zero();
-        }
-
-        vtkSmartPointer<vtkMatrix4x4> yarpMatToVTKMat (const Matrix m_yarp)
-        {
-            vtkSmartPointer<vtkMatrix4x4> m_vtk = vtkSmartPointer<vtkMatrix4x4>::New();
-            m_vtk->Zero();
-            for (size_t i = 0; i<4; i++)
-            {
-                for (size_t j=0; j<4; j++)
-                {
-                    m_vtk->SetElement(i, j, m_yarp(i,j));
-                }
-            }
-            return m_vtk;
-        }
-
-    };
-
     PointCloudProcessor PCproc;
     SuperquadricProcessor SQprocFD, SQprocAG;   //  FD = finite differences, AG = analytical gradient
 
@@ -757,9 +725,12 @@ class DisplaySuperQ : public RFModule, RateThread
             transform_matrix(3,3) = 1;
             //  shift along gz by fixed amount
             Vector gz = candidate.ax_orientation.getCol(2);
-            transform_matrix.setSubcol(gz*2, 0, 3);
+            double z_offset = candidate.ax_size(2) * 1.5;
+            transform_matrix.setSubcol(gz/norm(gz) + z_offset, 0, 3);
+            yDebug() << "Homogeneous matrix with z translation: " << transform_matrix.toString();
             candidate.ax_transform->SetMatrix(yarpMatToVTKMat(transform_matrix));
             candidate.ax_actor->SetUserTransform(candidate.ax_transform);
+            candidate.ax_actor->AxisLabelsOff();
             vtk_renderer->AddActor(candidate.ax_actor);
         }
 
