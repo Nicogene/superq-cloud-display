@@ -262,7 +262,8 @@ public:
         //  simply get the superquadric center as a yarp::sig::Vector
         double *center;
         Vector center_vec;
-        center = vtk_superquadric->GetCenter();
+        //center = vtk_superquadric->GetCenter();
+        center = vtk_transform->GetPosition();
         center_vec.resize(3);
         for (size_t idx = 0; idx < 3; idx++)
         {
@@ -298,11 +299,19 @@ public:
         //  convert axis-angle orientation representation to a yarp::sig::Vector
         double* orientationWXYZ;
         orientationWXYZ = vtk_transform->GetOrientationWXYZ();
+        //  yarp considers axis angle to be [x y z theta]
+        //  vtk considers axis angle to be  [theta x y z]
         Vector orientationWXYZ_vec;
         orientationWXYZ_vec.resize(4);
         for (size_t idx = 0; idx < 4; ++idx) {
             orientationWXYZ_vec(idx) = orientationWXYZ[idx];
         }
+
+        double tmp = orientationWXYZ_vec(0);
+        orientationWXYZ_vec(0) = orientationWXYZ_vec(3);
+        orientationWXYZ_vec(3) = tmp;
+
+        yDebug() << "Superquadric processor: orientation WXYZ orientation is " << orientationWXYZ_vec.toString();
 
         return orientationWXYZ_vec;
     }
@@ -510,7 +519,7 @@ class DisplaySuperQ : public RFModule, RateThread
         vtk_updateCallback->set_closing(closing);
         vtk_renderWindowInteractor->AddObserver(vtkCommand::TimerEvent, vtk_updateCallback);
 
-        this->start();
+        //this->start();
 
         vtk_renderWindowInteractor->Start();
 
@@ -648,6 +657,8 @@ class DisplaySuperQ : public RFModule, RateThread
         else
             yError() << "Invalid superquadric";
 
+        refreshGraspComputation();
+
     }
 
     /****************************************************************/
@@ -724,10 +735,16 @@ class DisplaySuperQ : public RFModule, RateThread
             transform_matrix.setSubmatrix(candidate.ax_orientation, 0, 0);
             transform_matrix(3,3) = 1;
             //  shift along gz by fixed amount
+            yDebug() << "Superquadric center: " << superquadric_center.toString();
+            transform_matrix.setSubcol(superquadric_center, 0, 3);
             Vector gz = candidate.ax_orientation.getCol(2);
-            double z_offset = candidate.ax_size(2) * 1.5;
-            transform_matrix.setSubcol(gz/norm(gz) + z_offset, 0, 3);
-            yDebug() << "Homogeneous matrix with z translation: " << transform_matrix.toString();
+            double z_offset = candidate.ax_size(2);
+            yDebug() << "Homogeneous matrix without z translation: ";
+            yDebug() << transform_matrix.toString();
+            yDebug() << "Axis size: " << candidate.ax_size.toString();
+            transform_matrix.setSubcol(transform_matrix.subcol(0,3,3) + z_offset*gz/norm(gz), 0, 3);
+            yDebug() << "Homogeneous matrix with z translation: ";
+            yDebug() << transform_matrix.toString();
             candidate.ax_transform->SetMatrix(yarpMatToVTKMat(transform_matrix));
             candidate.ax_actor->SetUserTransform(candidate.ax_transform);
             candidate.ax_actor->AxisLabelsOff();
@@ -759,7 +776,7 @@ class DisplaySuperQ : public RFModule, RateThread
 public:
 
     //  set up the constructor
-    DisplaySuperQ(): RateThread(10000), closing(false), PCproc(this), SQprocAG(this, SuperquadricType::ANALYTICAL_GRAD_SQ),
+    DisplaySuperQ(): RateThread(1000), closing(false), PCproc(this), SQprocAG(this, SuperquadricType::ANALYTICAL_GRAD_SQ),
         SQprocFD(this, SuperquadricType::FINITE_DIFF_SQ) {}
 };
 
