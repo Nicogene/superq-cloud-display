@@ -89,7 +89,7 @@ public:
             }
         }
 
-        iren->GetRenderWindow()->SetWindowName("Superquadric viewer");
+        iren->GetRenderWindow()->SetWindowName("Grasping pose candidates");
         iren->Render();
     }
 };
@@ -435,6 +435,7 @@ class DisplaySuperQ : public RFModule, RateThread
     vtkSmartPointer<UpdateCommand> vtk_updateCallback;
 
     std::vector<grasp_axis> pose_candidates;
+    const double TABLE_HEIGHT_Z;
 
     bool configure(ResourceFinder &rf) override
     {
@@ -517,7 +518,7 @@ class DisplaySuperQ : public RFModule, RateThread
         vtk_updateCallback->set_closing(closing);
         vtk_renderWindowInteractor->AddObserver(vtkCommand::TimerEvent, vtk_updateCallback);
 
-        //this->start();
+        this->start();
 
         vtk_renderWindowInteractor->Start();
 
@@ -727,6 +728,8 @@ class DisplaySuperQ : public RFModule, RateThread
 
         //  add all candidates to render window
         //  TODO: first generate all candidates, then filter them according to their gx and gy size, and position wrt table
+        std::vector<grasp_axis> filtered_candidates;
+
         for (grasp_axis candidate:pose_candidates)
         {
             //  make a 4x4 zero-filled matrix and put in the 3x3 rotation of gx, gy, gz
@@ -752,15 +755,28 @@ class DisplaySuperQ : public RFModule, RateThread
             yDebug() << "Homogeneous matrix with z translation: ";
             yDebug() << transform_matrix.toString();
 
-            //  set the vtk transform to this 4x4 transformation matrix
-            candidate.ax_transform->SetMatrix(yarpMatToVTKMat(transform_matrix));
-            candidate.ax_actor->SetUserTransform(candidate.ax_transform);
+            Vector gy = candidate.ax_orientation.getCol(1);
+            Vector rootz = Vector(3, 0.0);
+            rootz(2) = 1.0;
 
-            //  add the axis triad as actor for the rendering
-            candidate.ax_actor->AxisLabelsOff();
-            candidate.ax_actor->SetTotalLength(0.02, 0.02, 0.02);
-            vtk_renderer->AddActor(candidate.ax_actor);
+            //  filter candidates
+            if ((transform_matrix(2,3) > TABLE_HEIGHT_Z)  && (dot(rootz, gy) <= 0.0))
+            {
+                //  set the vtk transform to this 4x4 transformation matrix
+                candidate.ax_transform->SetMatrix(yarpMatToVTKMat(transform_matrix));
+                candidate.ax_actor->SetUserTransform(candidate.ax_transform);
+
+                //  add the axis triad as actor for the rendering
+                candidate.ax_actor->AxisLabelsOff();
+                candidate.ax_actor->SetTotalLength(0.02, 0.02, 0.02);
+
+                //  save the good candidates and add them to render
+                filtered_candidates.push_back(candidate);
+                vtk_renderer->AddActor(candidate.ax_actor);
+            }
         }
+
+        pose_candidates = filtered_candidates;
 
         yDebug() << "refreshing grasp computation";
         yDebug() << "Props rendered: " << vtk_renderer->GetNumberOfPropsRendered();
@@ -787,7 +803,7 @@ class DisplaySuperQ : public RFModule, RateThread
 public:
 
     //  set up the constructor
-    DisplaySuperQ(): RateThread(5000), closing(false), PCproc(this), SQprocAG(this, SuperquadricType::ANALYTICAL_GRAD_SQ),
+    DisplaySuperQ(): TABLE_HEIGHT_Z(-0.01), RateThread(100000), closing(false), PCproc(this), SQprocAG(this, SuperquadricType::ANALYTICAL_GRAD_SQ),
         SQprocFD(this, SuperquadricType::FINITE_DIFF_SQ) {}
 };
 
