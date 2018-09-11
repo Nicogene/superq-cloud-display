@@ -16,20 +16,19 @@ if(NOT CMAKE_CONFIGURATION_TYPES)
   endif()
 endif()
 
-find_package(YARP REQUIRED)
+find_package(YARP 3.0 REQUIRED
+                      COMPONENTS OS conf sig dev math)
 find_package(ICUB REQUIRED)
-list(APPEND CMAKE_MODULE_PATH ${YARP_MODULE_PATH})
 list(APPEND CMAKE_MODULE_PATH ${ICUB_MODULE_PATH})
 
 find_package(VTK REQUIRED)
 include(${VTK_USE_FILE})
 
-include_directories(${PROJECT_SOURCE_DIR}/src ${YARP_INCLUDE_DIRS})
 add_executable(${PROJECT_NAME} src/main.cpp)
 #set_property(TARGET ${PROJECT_NAME} APPEND_STRING PROPERTY LINK_FLAGS " ${IPOPT_LINK_FLAGS}")
 
 target_link_libraries(${PROJECT_NAME} ${YARP_LIBRARIES})
-if(VTK_LIBRARIES)
+if(DEFINED VTK_LIBRARIES)
   target_link_libraries(${PROJECT_NAME} ${VTK_LIBRARIES})
 else()
   target_link_libraries(${PROJECT_NAME} vtkHybrid vtkWidgets)

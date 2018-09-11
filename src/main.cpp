@@ -53,7 +53,7 @@ class UpdateCommand : public vtkCommand
 
 public:
     /****************************************************************/
-    vtkTypeMacro(UpdateCommand, vtkCommand);
+    vtkTypeMacro(UpdateCommand, vtkCommand)
 
     /****************************************************************/
     static UpdateCommand *New()
