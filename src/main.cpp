@@ -189,12 +189,12 @@ public:
 class PointCloudProcessor: public TypedReaderCallback<ImageOf<PixelFloat>>
 {
     DisplayPointCloud *displayer{nullptr};
-    Property intrinsics;
+    yarp::sig::IntrinsicParams intrinsics;
     using TypedReaderCallback<ImageOf<PixelFloat>>::onRead;
     virtual void onRead(ImageOf<PixelFloat> &image) override;
 
 public:
-    PointCloudProcessor(DisplayPointCloud *displayer_, const Property& intrinsics_) : displayer{displayer_},
+    PointCloudProcessor(DisplayPointCloud *displayer_, const IntrinsicParams& intrinsics_) : displayer{displayer_},
                                                                                       intrinsics{intrinsics_} { }
 };
 
@@ -249,7 +249,8 @@ private:
 
     bool configure(ResourceFinder &rf) override
     {
-        Property intrinsics;
+        Property propIntrinsics;
+        bool aligned {false};
 
         if (rf.check("name"))
         {
@@ -259,6 +260,8 @@ private:
         {
             moduleName = "point-cloud-display";
         }
+
+        aligned = rf.find("aligned").asBool();
 
         Property conf;
         conf.put("device","RGBDSensorClient");
@@ -282,13 +285,23 @@ private:
             return false;
         }
 
-        if (!iRgbd->getDepthIntrinsicParam(intrinsics))
+        bool ok{false};
+        if (aligned)
+        {
+            ok = iRgbd->getRgbIntrinsicParam(propIntrinsics);
+        }
+        else
+        {
+            ok = iRgbd->getDepthIntrinsicParam(propIntrinsics);
+        }
+
+        IntrinsicParams intrinsics(propIntrinsics);
+
+        if (!ok)
         {
             yError()<<"Unable to get depth intrinsic params";
             return false;
         }
-
-        yDebug()<<"intrinsic param are:"<<intrinsics.toString();
 
         if (!poly.close())
         {
@@ -303,6 +316,7 @@ private:
             return false;
         }
 
+        // If  the depth is aligned with color use the color intrinsics
         PCproc = unique_ptr<PointCloudProcessor>(new PointCloudProcessor(this, intrinsics));
         //  attach callbacks to ports
         depthImageInPort.useCallback(*PCproc);
